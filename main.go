@@ -16,11 +16,18 @@ int Test() {
 import "C"
 import (
 	"fmt"
+	"log"
 	"runtime"
 )
 
 func main() {
 	runtime.LockOSThread()
+
+	display := C.XOpenDisplay(nil)
+	if display == nil {
+		log.Fatal("Cannot connect to X server")
+	}
+	defer C.XCloseDisplay(display)
 
 	result := C.Test()
 	fmt.Println(result)
