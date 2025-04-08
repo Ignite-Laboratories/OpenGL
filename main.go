@@ -43,6 +43,7 @@ import (
 	"fmt"
 	"log"
 	"runtime"
+	"unsafe"
 )
 
 func main() {
@@ -54,6 +55,71 @@ func main() {
 	}
 	defer C.XCloseDisplay(display)
 
+	// Get the default screen
+	screen := C.XDefaultScreen(display)
+
+	GetOpenGLMax(display, screen)
+
+	// Define GLX attributes
+	visualAttribs := []C.int{
+		C.GLX_X_RENDERABLE, 1, // Ensure renderable
+		C.GLX_RENDER_TYPE, C.GLX_RGBA_BIT,
+		C.GLX_DRAWABLE_TYPE, C.GLX_WINDOW_BIT,
+		C.GLX_X_VISUAL_TYPE, C.GLX_TRUE_COLOR,
+		C.GLX_RED_SIZE, 8,
+		C.GLX_GREEN_SIZE, 8,
+		C.GLX_BLUE_SIZE, 8,
+		C.GLX_DEPTH_SIZE, 24,
+		C.GLX_DOUBLEBUFFER, 1,
+		0, // Null-terminate
+	}
+
+	// Retrieve framebuffer configs
+	var fbCount C.int
+	fbConfigs := C.glXChooseFBConfig(display, screen, &visualAttribs[0], &fbCount)
+	if fbConfigs == nil || fbCount == 0 {
+		log.Fatal("Failed to retrieve framebuffer config")
+	}
+
 	result := C.Test()
 	fmt.Println(result)
+}
+
+func GetOpenGLMax(display *C.Display, screen C.int) {
+	// Set minimal visual attributes for OpenGL context
+	attributes := []C.int{
+		C.GLX_RGBA,
+		C.GLX_DEPTH_SIZE, 24,
+		C.GLX_DOUBLEBUFFER,
+		0,
+	}
+	visual := C.glXChooseVisual(display, C.int(screen), &attributes[0])
+	if visual == nil {
+		log.Fatal("No appropriate visual found")
+	}
+
+	ctx := C.glXCreateContext(display, visual, nil, C.True)
+	if ctx == nil {
+		log.Fatal("Failed to create an OpenGL context")
+	}
+	defer C.glXDestroyContext(display, ctx)
+
+	// Create a dummy window
+	root := C.XRootWindow(display, C.int(screen))
+	win := C.XCreateSimpleWindow(display, root, 0, 0, 1, 1, 0, 0, 0)
+	C.glXMakeCurrent(display, C.GLXDrawable(win), ctx)
+	defer C.XDestroyWindow(display, win)
+
+	// Get OpenGL version
+	version := C.GoString((*C.char)(unsafe.Pointer(C.glGetString(C.GL_VERSION))))
+	shaderVersion := C.GoString((*C.char)(unsafe.Pointer(C.glGetString(C.GL_SHADING_LANGUAGE_VERSION))))
+	renderer := C.GoString((*C.char)(unsafe.Pointer(C.glGetString(C.GL_RENDERER))))
+	vendor := C.GoString((*C.char)(unsafe.Pointer(C.glGetString(C.GL_VENDOR))))
+
+	// Display OpenGL version information
+	log.Printf("OpenGL Version: %s", version)
+	log.Printf("GLSL Version: %s", shaderVersion)
+	log.Printf("Renderer: %s", renderer)
+	log.Printf("Vendor: %s", vendor)
+
 }
