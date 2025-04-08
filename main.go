@@ -83,12 +83,10 @@ func main() {
 	// Cast the pointer to an array and access the first framebuffer config
 	fbConfig := (*[1 << 28]C.GLXFBConfig)(unsafe.Pointer(fbConfigs))[:fbCount:fbCount][0]
 
-	// Get a visual from the framebuffer config
-	visualInfo := C.glXGetVisualFromFBConfig(display, fbConfig)
-	if visualInfo == nil {
-		log.Fatal("Failed to get visual info")
+	if fbConfig == nil {
+		log.Fatal("Failed to retrieve framebuffer config")
 	}
-	defer C.XFree(unsafe.Pointer(visualInfo))
+	defer C.XFree(unsafe.Pointer(fbConfig))
 
 	//GetOpenGLMax(display, screen)
 	result := C.Test()
