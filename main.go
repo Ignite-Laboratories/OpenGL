@@ -14,9 +14,14 @@ int Test() {
 
 */
 import "C"
-import "fmt"
+import (
+	"fmt"
+	"runtime"
+)
 
 func main() {
+	runtime.LockOSThread()
+
 	result := C.Test()
 	fmt.Println(result)
 }
