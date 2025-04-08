@@ -61,15 +61,9 @@ func main() {
 
 	// Define GLX attributes
 	visualAttribs := []C.int{
-		C.GLX_X_RENDERABLE, 1, // Ensure renderable
-		C.GLX_RENDER_TYPE, C.GLX_RGBA_BIT,
-		C.GLX_DRAWABLE_TYPE, C.GLX_WINDOW_BIT,
-		C.GLX_X_VISUAL_TYPE, C.GLX_TRUE_COLOR,
-		C.GLX_RED_SIZE, 8,
-		C.GLX_GREEN_SIZE, 8,
-		C.GLX_BLUE_SIZE, 8,
-		C.GLX_DEPTH_SIZE, 24,
-		C.GLX_DOUBLEBUFFER, 1,
+		C.GLX_RGBA,           // Request RGBA colors
+		C.GLX_DEPTH_SIZE, 24, // Depth size
+		C.GLX_DOUBLEBUFFER, 1, // Double-buffered rendering
 		0, // Null-terminate
 	}
 
@@ -83,10 +77,12 @@ func main() {
 	// Cast the pointer to an array and access the first framebuffer config
 	fbConfig := (*[1 << 28]C.GLXFBConfig)(unsafe.Pointer(fbConfigs))[:fbCount:fbCount][0]
 
-	if fbConfig == nil {
-		log.Fatal("Failed to retrieve framebuffer config")
+	// Get a visual from the framebuffer config
+	visualInfo := C.glXGetVisualFromFBConfig(display, fbConfig)
+	if visualInfo == nil {
+		log.Fatal("Failed to get visual info")
 	}
-	defer C.XFree(unsafe.Pointer(fbConfig))
+	defer C.XFree(unsafe.Pointer(visualInfo))
 
 	//GetOpenGLMax(display, screen)
 	result := C.Test()
