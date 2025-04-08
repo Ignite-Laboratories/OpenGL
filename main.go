@@ -41,6 +41,7 @@ GLXContext createGLXContext(Display *display, GLXFBConfig config, GLXContext sha
 import "C"
 import (
 	"fmt"
+	"github.com/go-gl/gl/v3.3-core/gl"
 	"log"
 	"runtime"
 	"unsafe"
@@ -57,8 +58,6 @@ func main() {
 
 	// Get the default screen
 	screen := C.XDefaultScreen(display)
-
-	GetOpenGLMax(display, screen)
 
 	// Define GLX attributes
 	visualAttribs := []C.int{
@@ -81,8 +80,27 @@ func main() {
 		log.Fatal("Failed to retrieve framebuffer config")
 	}
 
+	// Cast the pointer to an array and access the first framebuffer config
+	fbConfig := (*[1 << 28]C.GLXFBConfig)(unsafe.Pointer(fbConfigs))[:fbCount:fbCount][0]
+
+	// Get a visual from the framebuffer config
+	visualInfo := C.glXGetVisualFromFBConfig(display, fbConfig)
+	if visualInfo == nil {
+		log.Fatal("Failed to get visual info")
+	}
+	defer C.XFree(unsafe.Pointer(visualInfo))
+
+	//GetOpenGLMax(display, screen)
 	result := C.Test()
 	fmt.Println(result)
+}
+
+// isGeometryShaderSupported checks for geometry shader support in OpenGL
+func isGeometryShaderSupported() {
+	// Fallback: Check for ARB_geometry_shader4 or EXT_geometry_shader4 extension in older OpenGL versions
+	extensions := gl.GoStr(gl.GetString(gl.EXTENSIONS))
+
+	fmt.Println(extensions)
 }
 
 func GetOpenGLMax(display *C.Display, screen C.int) {
@@ -121,5 +139,5 @@ func GetOpenGLMax(display *C.Display, screen C.int) {
 	log.Printf("GLSL Version: %s", shaderVersion)
 	log.Printf("Renderer: %s", renderer)
 	log.Printf("Vendor: %s", vendor)
-
+	isGeometryShaderSupported()
 }
