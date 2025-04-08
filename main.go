@@ -41,7 +41,7 @@ GLXContext createGLXContext(Display *display, GLXFBConfig config, GLXContext sha
 import "C"
 import (
 	"fmt"
-	"github.com/go-gl/gl/v3.3-core/gl"
+	"github.com/go-gl/gl/v2.1/gl"
 	"log"
 	"runtime"
 	"unsafe"
