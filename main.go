@@ -113,12 +113,12 @@ func main() {
 	)
 	C.XMapWindow(display, win)
 
-	// Create a GLX context for OpenGL 3.3 Core
+	// Create a GLX context for OpenGL ES 3.2
 	contextAttribs := C.GLXContextAttributes{
-		contextMajorVersion: 3,
-		contextMinorVersion: 1,
-		contextFlags:        0,      // No debug or forward-compatible flags
-		profileMask:         0x0001, // GLX_CONTEXT_CORE_PROFILE_BIT_ARB
+		contextMajorVersion: 3,   // Request OpenGL ES major version 3
+		contextMinorVersion: 2,   // Request OpenGL ES minor version 2
+		contextFlags:        0,   // No debug or forward-compatible flags
+		profileMask:         0x4, // GLX_CONTEXT_ES2_PROFILE_BIT_EXT for OpenGL ES
 	}
 	glxContext := C.createGLXContext(display, fbConfig, nil, C.True, contextAttribs)
 	if glxContext == nil {
@@ -141,7 +141,9 @@ func main() {
 	fmt.Println(ver)
 	extensions := gl.GoStr(gl.GetString(gl.EXTENSIONS))
 	for _, extension := range strings.Fields(extensions) {
-		fmt.Println(extension)
+		if strings.Contains(extension, "geometry") {
+			fmt.Println(extension)
+		}
 	}
 
 	// Render loop
