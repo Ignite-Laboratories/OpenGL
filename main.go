@@ -40,9 +40,10 @@ GLXContext createGLXContext(Display *display, GLXFBConfig config, GLXContext sha
 */
 import "C"
 import (
-	"fmt"
+	"github.com/go-gl/gl/v3.1/gles2"
 	"log"
 	"runtime"
+	"time"
 	"unsafe"
 )
 
@@ -113,7 +114,7 @@ func main() {
 	// Create a GLX context for OpenGL 3.3 Core
 	contextAttribs := C.GLXContextAttributes{
 		contextMajorVersion: 3,
-		contextMinorVersion: 2,
+		contextMinorVersion: 1,
 		contextFlags:        0,      // No debug or forward-compatible flags
 		profileMask:         0x0001, // GLX_CONTEXT_CORE_PROFILE_BIT_ARB
 	}
@@ -127,9 +128,26 @@ func main() {
 		log.Fatal("Failed to make OpenGL context current")
 	}
 
+	// Initialize OpenGL
+	if err := gles2.Init(); err != nil {
+		log.Fatalf("Failed to initialize OpenGL: %v", err)
+	}
+	log.Printf("OpenGL initialized. Version: %s", gles2.GoStr(gles2.GetString(gles2.VERSION)))
+
 	GetOpenGLMax(display, screen)
-	result := C.Test()
-	fmt.Println(result)
+
+	// Render loop
+	for {
+		// Clear the screen
+		gles2.ClearColor(0.2, 0.3, 0.4, 1.0) // RGB color
+		gles2.Clear(gles2.COLOR_BUFFER_BIT)
+
+		// Swap buffers
+		C.glXSwapBuffers(display, C.GLXDrawable(win))
+
+		// Wait a bit (~60 FPS)
+		time.Sleep(16 * time.Millisecond)
+	}
 }
 
 func GetOpenGLMax(display *C.Display, screen C.int) {
