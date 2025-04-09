@@ -116,7 +116,7 @@ func main() {
 	// Create a GLX context for OpenGL ES 3.2
 	contextAttribs := C.GLXContextAttributes{
 		contextMajorVersion: 3,   // Request OpenGL ES major version 3
-		contextMinorVersion: 2,   // Request OpenGL ES minor version 2
+		contextMinorVersion: 1,   // Request OpenGL ES minor version 2
 		contextFlags:        0,   // No debug or forward-compatible flags
 		profileMask:         0x4, // GLX_CONTEXT_ES2_PROFILE_BIT_EXT for OpenGL ES
 	}
