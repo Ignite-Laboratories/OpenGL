@@ -23,7 +23,7 @@ func main() {
 
 	// Set OpenGL attributes
 	sdl.GLSetAttribute(sdl.GL_CONTEXT_MAJOR_VERSION, 3) // OpenGL ES major version 3
-	sdl.GLSetAttribute(sdl.GL_CONTEXT_MINOR_VERSION, 2) // OpenGL ES minor version 2
+	sdl.GLSetAttribute(sdl.GL_CONTEXT_MINOR_VERSION, 1) // OpenGL ES minor version 2
 	sdl.GLSetAttribute(sdl.GL_CONTEXT_PROFILE_MASK, sdl.GL_CONTEXT_PROFILE_ES)
 	sdl.GLSetAttribute(sdl.GL_DOUBLEBUFFER, 1)
 	sdl.GLSetAttribute(sdl.GL_DEPTH_SIZE, 24)
@@ -41,6 +41,16 @@ func main() {
 	}
 	defer window.Destroy()
 
+	RenderLoop(window)
+
+	for Alive {
+
+	}
+}
+
+var Alive = true
+
+func RenderLoop(window *sdl.Window) {
 	// Create OpenGL context
 	glContext, err := window.GLCreateContext()
 	if err != nil {
@@ -76,13 +86,12 @@ func main() {
 	}
 
 	// Main render loop
-	running := true
-	for running {
+	for Alive {
 		// Handle SDL events
 		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
 			switch event.(type) {
 			case *sdl.QuitEvent:
-				running = false
+				Alive = false
 			}
 		}
 
