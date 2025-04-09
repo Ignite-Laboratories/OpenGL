@@ -88,7 +88,7 @@ func HandleWindowEvent(windowID uint32) {
 	for _, control := range Windows {
 		if control.WindowID == windowID {
 			control.Alive = false
-			time.Sleep(time.Millisecond * 16)
+			time.Sleep(time.Millisecond * 32)
 			control.Window.Destroy()
 		}
 	}
