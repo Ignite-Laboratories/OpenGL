@@ -24,7 +24,15 @@ type WindowControl struct {
 	ID       uint64
 	WindowID uint32
 	Window   *sdl.Window
-	Alive    bool
+	alive    bool
+	dead     bool
+}
+
+func (c *WindowControl) Destroy() {
+	c.alive = false
+	for !c.dead {
+
+	}
 }
 
 func main() {
@@ -64,7 +72,7 @@ func EventPoll() {
 			// Global quit event (e.g., user hits Ctrl+C or closes the app entirely)
 			fmt.Println("Received QuitEvent. Shutting down all windows.")
 			for _, control := range Windows {
-				control.Alive = false
+				control.alive = false
 			}
 			Alive = false
 			return
@@ -87,8 +95,7 @@ func HandleWindowEvent(windowID uint32) {
 	fmt.Printf("Window %d requested close.\n", windowID)
 	for _, control := range Windows {
 		if control.WindowID == windowID {
-			control.Alive = false
-			time.Sleep(time.Millisecond * 32)
+			control.Destroy()
 			control.Window.Destroy()
 		}
 	}
@@ -115,7 +122,7 @@ func CreateWindow() *WindowControl {
 	w.ID = NextID()
 	w.WindowID, _ = window.GetID()
 	w.Window = window
-	w.Alive = true
+	w.alive = true
 
 	Windows[w.ID] = w
 	return w
@@ -160,7 +167,7 @@ func RenderLoop(ctrl *WindowControl) {
 	}
 
 	// Main render loop
-	for ctrl.Alive {
+	for ctrl.alive {
 		// Clear the screen with a color
 		gl.ClearColor(0.2, 0.3, 0.4, 1.0) // RGB color
 		gl.Clear(gl.COLOR_BUFFER_BIT)
@@ -168,4 +175,5 @@ func RenderLoop(ctrl *WindowControl) {
 		// Swap buffers (present the rendered frame)
 		ctrl.Window.GLSwap()
 	}
+	ctrl.dead = true
 }
