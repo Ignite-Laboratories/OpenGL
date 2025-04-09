@@ -2,16 +2,29 @@ package main
 
 import (
 	"fmt"
+	"github.com/go-gl/gl/v3.3-core/gl"
+	"github.com/veandco/go-sdl2/sdl"
 	"log"
 	"runtime"
 	"strings"
-	"time"
-
-	"github.com/go-gl/gl/v3.3-core/gl"
-	"github.com/veandco/go-sdl2/sdl"
+	"sync"
+	"sync/atomic"
 )
 
 var Alive = true
+var id uint64 = 0
+var Windows = make(map[uint64]*WindowControl, 0)
+var Mutex sync.Mutex
+
+func NextID() uint64 {
+	return atomic.AddUint64(&id, 1)
+}
+
+type WindowControl struct {
+	ID     uint64
+	Window *sdl.Window
+	Alive  bool
+}
 
 func main() {
 	runtime.LockOSThread()
@@ -30,21 +43,38 @@ func main() {
 	sdl.GLSetAttribute(sdl.GL_DEPTH_SIZE, 24)
 
 	go RenderLoop(CreateWindow())
-	//go RenderLoop(CreateWindow())
-	//go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
 
 	for Alive {
-		// Handle SDL events
 		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
-			switch event.(type) {
+			switch e := event.(type) {
 			case *sdl.QuitEvent:
-				Alive = false
+				// Global quit event (e.g., user hits Ctrl+C or closes the app entirely)
+				fmt.Println("Received QuitEvent. Shutting down all windows.")
+				for _, control := range Windows {
+					control.Alive = false
+				}
+				return
+
+			case *sdl.WindowEvent:
+				// Handle specific window close events
+				if e.Event == sdl.WINDOWEVENT_CLOSE {
+					fmt.Printf("Window %d requested close.\n", e.WindowID)
+					for _, control := range Windows {
+						winID, _ := control.Window.GetID()
+						if winID == e.WindowID {
+							control.Alive = false
+							delete(Windows, control.ID)
+						}
+					}
+				}
 			}
 		}
 	}
 }
 
-func CreateWindow() *sdl.Window {
+func CreateWindow() *WindowControl {
 	// Create an SDL window
 	windowWidth, windowHeight := 800, 600
 	window, err := sdl.CreateWindow(
@@ -57,23 +87,30 @@ func CreateWindow() *sdl.Window {
 		log.Fatalf("Failed to create SDL window: %v", err)
 	}
 
-	return window
+	w := &WindowControl{}
+	w.ID = NextID()
+	w.Window = window
+	w.Alive = true
+
+	Mutex.Lock()
+	Windows[w.ID] = w
+	Mutex.Unlock()
+	return w
 }
 
-func RenderLoop(window *sdl.Window) {
-	defer window.Destroy()
-	// Lock the OS thread for OpenGL context
+func RenderLoop(ctrl *WindowControl) {
 	runtime.LockOSThread()
+	defer ctrl.Window.Destroy()
 
 	// Create OpenGL context
-	glContext, err := window.GLCreateContext()
+	glContext, err := ctrl.Window.GLCreateContext()
 	if err != nil {
 		log.Fatalf("Failed to create OpenGL context: %v", err)
 	}
 	defer sdl.GLDeleteContext(glContext)
 
 	// Enable VSync
-	if err := sdl.GLSetSwapInterval(1); err != nil {
+	if err := sdl.GLSetSwapInterval(0); err != nil {
 		log.Printf("Failed to set VSync: %v", err)
 	}
 
@@ -100,16 +137,12 @@ func RenderLoop(window *sdl.Window) {
 	}
 
 	// Main render loop
-	for Alive {
-
+	for ctrl.Alive {
 		// Clear the screen with a color
 		gl.ClearColor(0.2, 0.3, 0.4, 1.0) // RGB color
 		gl.Clear(gl.COLOR_BUFFER_BIT)
 
 		// Swap buffers (present the rendered frame)
-		window.GLSwap()
-
-		// Wait a bit (~60 FPS)
-		time.Sleep(16 * time.Millisecond)
+		ctrl.Window.GLSwap()
 	}
 }
