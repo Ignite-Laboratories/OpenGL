@@ -113,7 +113,7 @@ func main() {
 	// Create a GLX context for OpenGL 3.3 Core
 	contextAttribs := C.GLXContextAttributes{
 		contextMajorVersion: 3,
-		contextMinorVersion: 3,
+		contextMinorVersion: 1,
 		contextFlags:        0,      // No debug or forward-compatible flags
 		profileMask:         0x0001, // GLX_CONTEXT_CORE_PROFILE_BIT_ARB
 	}
