@@ -59,6 +59,22 @@ func main() {
 	go RenderLoop(CreateWindow())
 	go RenderLoop(CreateWindow())
 
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+
 	for Alive {
 		EventPoll()
 	}
