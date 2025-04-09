@@ -7,7 +7,6 @@ import (
 	"log"
 	"runtime"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -15,7 +14,6 @@ import (
 var Alive = true
 var id uint64 = 0
 var Windows = make(map[uint64]*WindowControl, 0)
-var Mutex sync.Mutex
 
 func NextID() uint64 {
 	return atomic.AddUint64(&id, 1)
@@ -73,32 +71,28 @@ func EventPoll() {
 		case *sdl.WindowEvent:
 			// Handle specific window close events
 			if e.Event == sdl.WINDOWEVENT_CLOSE {
-				go HandleWindowEvent(e.WindowID)
+				HandleWindowEvent(e.WindowID)
 			}
 		}
 	}
 }
 
 func HandleWindowEvent(windowID uint32) {
-	Mutex.Lock()
-	defer Mutex.Unlock()
-
 	fmt.Printf("Window %d requested close.\n", windowID)
 	for _, control := range Windows {
 		if control.WindowID == windowID {
 			control.Alive = false
-			delete(Windows, control.ID)
-
-			if len(Windows) == 0 {
-				Alive = false
-				return
-			}
+			time.Sleep(time.Millisecond)
+			control.Window.Destroy()
 		}
+	}
+
+	if len(Windows) == 0 {
+		Alive = false
 	}
 }
 
 func CreateWindow() *WindowControl {
-	Mutex.Lock()
 	// Create an SDL window
 	windowWidth, windowHeight := 800, 600
 	window, err := sdl.CreateWindow(
@@ -118,13 +112,12 @@ func CreateWindow() *WindowControl {
 	w.Alive = true
 
 	Windows[w.ID] = w
-	Mutex.Unlock()
 	return w
 }
 
 func RenderLoop(ctrl *WindowControl) {
 	runtime.LockOSThread()
-	defer ctrl.Window.Destroy()
+	defer delete(Windows, ctrl.ID)
 
 	// Create OpenGL context
 	glContext, err := ctrl.Window.GLCreateContext()
