@@ -40,9 +40,11 @@ GLXContext createGLXContext(Display *display, GLXFBConfig config, GLXContext sha
 */
 import "C"
 import (
+	"fmt"
 	"github.com/go-gl/gl/v3.1/gles2"
 	"log"
 	"runtime"
+	"strings"
 	"time"
 	"unsafe"
 )
@@ -135,6 +137,10 @@ func main() {
 	log.Printf("OpenGL initialized. Version: %s", gles2.GoStr(gles2.GetString(gles2.VERSION)))
 
 	GetOpenGLMax(display, screen)
+	extensions := gles2.GoStr(gles2.GetString(gles2.EXTENSIONS))
+	for _, extension := range strings.Fields(extensions) {
+		fmt.Println(extension)
+	}
 
 	// Render loop
 	for {
