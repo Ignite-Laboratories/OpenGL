@@ -29,12 +29,18 @@ func main() {
 	sdl.GLSetAttribute(sdl.GL_DOUBLEBUFFER, 1)
 	sdl.GLSetAttribute(sdl.GL_DEPTH_SIZE, 24)
 
-	RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
 	//go RenderLoop(CreateWindow())
 	//go RenderLoop(CreateWindow())
 
 	for Alive {
-
+		// Handle SDL events
+		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
+			switch event.(type) {
+			case *sdl.QuitEvent:
+				Alive = false
+			}
+		}
 	}
 }
 
@@ -95,13 +101,6 @@ func RenderLoop(window *sdl.Window) {
 
 	// Main render loop
 	for Alive {
-		// Handle SDL events
-		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
-			switch event.(type) {
-			case *sdl.QuitEvent:
-				Alive = false
-			}
-		}
 
 		// Clear the screen with a color
 		gl.ClearColor(0.2, 0.3, 0.4, 1.0) // RGB color
