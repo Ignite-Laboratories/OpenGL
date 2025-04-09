@@ -41,9 +41,10 @@ GLXContext createGLXContext(Display *display, GLXFBConfig config, GLXContext sha
 import "C"
 import (
 	"fmt"
-	"github.com/go-gl/gl/v3.1/gles2"
+	"github.com/go-gl/gl/v3.2-compatibility/gl"
 	"log"
 	"runtime"
+	"strings"
 	"time"
 	"unsafe"
 )
@@ -130,20 +131,24 @@ func main() {
 	}
 
 	// Initialize OpenGL
-	if err := gles2.Init(); err != nil {
+	if err := gl.Init(); err != nil {
 		log.Fatalf("Failed to initialize OpenGL: %v", err)
 	}
-	log.Printf("OpenGL initialized. Version: %s", gles2.GoStr(gles2.GetString(gles2.VERSION)))
+	log.Printf("OpenGL initialized. Version: %s", gl.GoStr(gl.GetString(gl.VERSION)))
 
 	GetOpenGLMax(display, screen)
-	ver := gles2.GoStr(gles2.GetString(gles2.VERSION))
+	ver := gl.GoStr(gl.GetString(gl.VERSION))
 	fmt.Println(ver)
+	extensions := gl.GoStr(gl.GetString(gl.EXTENSIONS))
+	for _, extension := range strings.Fields(extensions) {
+		fmt.Println(extension)
+	}
 
 	// Render loop
 	for {
 		// Clear the screen
-		gles2.ClearColor(0.2, 0.3, 0.4, 1.0) // RGB color
-		gles2.Clear(gles2.COLOR_BUFFER_BIT)
+		gl.ClearColor(0.2, 0.3, 0.4, 1.0) // RGB color
+		gl.Clear(gl.COLOR_BUFFER_BIT)
 
 		// Swap buffers
 		C.glXSwapBuffers(display, C.GLXDrawable(win))
