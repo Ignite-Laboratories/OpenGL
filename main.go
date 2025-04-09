@@ -41,7 +41,6 @@ GLXContext createGLXContext(Display *display, GLXFBConfig config, GLXContext sha
 import "C"
 import (
 	"fmt"
-	"github.com/go-gl/gl/v2.1/gl"
 	"log"
 	"runtime"
 	"unsafe"
@@ -61,9 +60,15 @@ func main() {
 
 	// Define GLX attributes
 	visualAttribs := []C.int{
-		C.GLX_RGBA,           // Request RGBA colors
-		C.GLX_DEPTH_SIZE, 24, // Depth size
-		C.GLX_DOUBLEBUFFER, 1, // Double-buffered rendering
+		C.GLX_X_RENDERABLE, 1, // Ensure renderable
+		C.GLX_RENDER_TYPE, C.GLX_RGBA_BIT,
+		C.GLX_DRAWABLE_TYPE, C.GLX_WINDOW_BIT,
+		C.GLX_X_VISUAL_TYPE, C.GLX_TRUE_COLOR,
+		C.GLX_RED_SIZE, 8,
+		C.GLX_GREEN_SIZE, 8,
+		C.GLX_BLUE_SIZE, 8,
+		C.GLX_DEPTH_SIZE, 24,
+		C.GLX_DOUBLEBUFFER, 1,
 		0, // Null-terminate
 	}
 
@@ -84,17 +89,9 @@ func main() {
 	}
 	defer C.XFree(unsafe.Pointer(visualInfo))
 
-	//GetOpenGLMax(display, screen)
+	GetOpenGLMax(display, screen)
 	result := C.Test()
 	fmt.Println(result)
-}
-
-// isGeometryShaderSupported checks for geometry shader support in OpenGL
-func isGeometryShaderSupported() {
-	// Fallback: Check for ARB_geometry_shader4 or EXT_geometry_shader4 extension in older OpenGL versions
-	extensions := gl.GoStr(gl.GetString(gl.EXTENSIONS))
-
-	fmt.Println(extensions)
 }
 
 func GetOpenGLMax(display *C.Display, screen C.int) {
@@ -133,5 +130,4 @@ func GetOpenGLMax(display *C.Display, screen C.int) {
 	log.Printf("GLSL Version: %s", shaderVersion)
 	log.Printf("Renderer: %s", renderer)
 	log.Printf("Vendor: %s", vendor)
-	isGeometryShaderSupported()
 }
