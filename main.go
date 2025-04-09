@@ -7,6 +7,7 @@ import (
 	"log"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -77,7 +78,12 @@ func EventPoll() {
 	}
 }
 
+var mutex sync.Mutex
+
 func HandleWindowEvent(windowID uint32) {
+	mutex.Lock()
+	defer mutex.Unlock()
+
 	fmt.Printf("Window %d requested close.\n", windowID)
 	for _, control := range Windows {
 		if control.WindowID == windowID {
