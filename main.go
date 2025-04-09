@@ -29,9 +29,9 @@ func main() {
 	sdl.GLSetAttribute(sdl.GL_DOUBLEBUFFER, 1)
 	sdl.GLSetAttribute(sdl.GL_DEPTH_SIZE, 24)
 
-	go RenderLoop(CreateWindow())
-	go RenderLoop(CreateWindow())
-	go RenderLoop(CreateWindow())
+	RenderLoop(CreateWindow())
+	//go RenderLoop(CreateWindow())
+	//go RenderLoop(CreateWindow())
 
 	for Alive {
 
