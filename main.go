@@ -47,6 +47,10 @@ func main() {
 	go RenderLoop(CreateWindow())
 	go RenderLoop(CreateWindow())
 	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
 
 	for Alive {
 		EventPoll()
@@ -94,6 +98,7 @@ func HandleWindowEvent(windowID uint32) {
 }
 
 func CreateWindow() *WindowControl {
+	Mutex.Lock()
 	// Create an SDL window
 	windowWidth, windowHeight := 800, 600
 	window, err := sdl.CreateWindow(
@@ -112,7 +117,6 @@ func CreateWindow() *WindowControl {
 	w.Window = window
 	w.Alive = true
 
-	Mutex.Lock()
 	Windows[w.ID] = w
 	Mutex.Unlock()
 	return w
