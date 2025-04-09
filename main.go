@@ -89,6 +89,27 @@ func main() {
 	}
 	defer C.XFree(unsafe.Pointer(visualInfo))
 
+	// Create a window using the visual info
+	root := C.XRootWindow(display, C.int(screen))
+	swa := C.XSetWindowAttributes{
+		colormap:   C.XCreateColormap(display, root, visualInfo.visual, C.AllocNone),
+		event_mask: C.ExposureMask | C.KeyPressMask,
+	}
+
+	width, height := 800, 600
+	win := C.XCreateWindow(
+		display,
+		root,
+		0, 0,
+		C.uint(width), C.uint(height),
+		0, C.int(visualInfo.depth),
+		C.InputOutput,
+		visualInfo.visual,
+		C.CWColormap|C.CWEventMask,
+		&swa,
+	)
+	C.XMapWindow(display, win)
+
 	GetOpenGLMax(display, screen)
 	result := C.Test()
 	fmt.Println(result)
