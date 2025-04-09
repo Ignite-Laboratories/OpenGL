@@ -11,8 +11,9 @@ import (
 	"github.com/veandco/go-sdl2/sdl"
 )
 
+var Alive = true
+
 func main() {
-	// Lock the OS thread for OpenGL context
 	runtime.LockOSThread()
 
 	// Initialize SDL
@@ -28,6 +29,16 @@ func main() {
 	sdl.GLSetAttribute(sdl.GL_DOUBLEBUFFER, 1)
 	sdl.GLSetAttribute(sdl.GL_DEPTH_SIZE, 24)
 
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+	go RenderLoop(CreateWindow())
+
+	for Alive {
+
+	}
+}
+
+func CreateWindow() *sdl.Window {
 	// Create an SDL window
 	windowWidth, windowHeight := 800, 600
 	window, err := sdl.CreateWindow(
@@ -39,18 +50,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create SDL window: %v", err)
 	}
-	defer window.Destroy()
 
-	RenderLoop(window)
-
-	for Alive {
-
-	}
+	return window
 }
 
-var Alive = true
-
 func RenderLoop(window *sdl.Window) {
+	defer window.Destroy()
+	// Lock the OS thread for OpenGL context
+	runtime.LockOSThread()
+
 	// Create OpenGL context
 	glContext, err := window.GLCreateContext()
 	if err != nil {
