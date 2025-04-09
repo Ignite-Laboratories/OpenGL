@@ -44,7 +44,6 @@ import (
 	"github.com/go-gl/gl/v3.1/gles2"
 	"log"
 	"runtime"
-	"strings"
 	"time"
 	"unsafe"
 )
@@ -137,10 +136,8 @@ func main() {
 	log.Printf("OpenGL initialized. Version: %s", gles2.GoStr(gles2.GetString(gles2.VERSION)))
 
 	GetOpenGLMax(display, screen)
-	extensions := gles2.GoStr(gles2.GetString(gles2.EXTENSIONS))
-	for _, extension := range strings.Fields(extensions) {
-		fmt.Println(extension)
-	}
+	ver := gles2.GoStr(gles2.GetString(gles2.VERSION))
+	fmt.Println(ver)
 
 	// Render loop
 	for {
