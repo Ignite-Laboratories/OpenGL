@@ -110,6 +110,18 @@ func main() {
 	)
 	C.XMapWindow(display, win)
 
+	// Create a GLX context for OpenGL 3.3 Core
+	contextAttribs := C.GLXContextAttributes{
+		contextMajorVersion: 3,
+		contextMinorVersion: 3,
+		contextFlags:        0,      // No debug or forward-compatible flags
+		profileMask:         0x0001, // GLX_CONTEXT_CORE_PROFILE_BIT_ARB
+	}
+	glxContext := C.createGLXContext(display, fbConfig, nil, C.True, contextAttribs)
+	if glxContext == nil {
+		log.Fatal("Failed to create OpenGL 3.3 Core context")
+	}
+
 	GetOpenGLMax(display, screen)
 	result := C.Test()
 	fmt.Println(result)
