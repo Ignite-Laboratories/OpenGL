@@ -122,6 +122,11 @@ func main() {
 		log.Fatal("Failed to create OpenGL 3.3 Core context")
 	}
 
+	// Make the context current
+	if ok := C.glXMakeCurrent(display, C.GLXDrawable(win), glxContext); ok == 0 {
+		log.Fatal("Failed to make OpenGL context current")
+	}
+
 	GetOpenGLMax(display, screen)
 	result := C.Test()
 	fmt.Println(result)
