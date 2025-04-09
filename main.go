@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 var Alive = true
@@ -21,9 +22,10 @@ func NextID() uint64 {
 }
 
 type WindowControl struct {
-	ID     uint64
-	Window *sdl.Window
-	Alive  bool
+	ID       uint64
+	WindowID uint32
+	Window   *sdl.Window
+	Alive    bool
 }
 
 func main() {
@@ -47,28 +49,45 @@ func main() {
 	go RenderLoop(CreateWindow())
 
 	for Alive {
-		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
-			switch e := event.(type) {
-			case *sdl.QuitEvent:
-				// Global quit event (e.g., user hits Ctrl+C or closes the app entirely)
-				fmt.Println("Received QuitEvent. Shutting down all windows.")
-				for _, control := range Windows {
-					control.Alive = false
-				}
-				return
+		EventPoll()
+	}
+	time.Sleep(time.Millisecond * 250)
+}
 
-			case *sdl.WindowEvent:
-				// Handle specific window close events
-				if e.Event == sdl.WINDOWEVENT_CLOSE {
-					fmt.Printf("Window %d requested close.\n", e.WindowID)
-					for _, control := range Windows {
-						winID, _ := control.Window.GetID()
-						if winID == e.WindowID {
-							control.Alive = false
-							delete(Windows, control.ID)
-						}
-					}
-				}
+func EventPoll() {
+	for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
+		switch e := event.(type) {
+		case *sdl.QuitEvent:
+			// Global quit event (e.g., user hits Ctrl+C or closes the app entirely)
+			fmt.Println("Received QuitEvent. Shutting down all windows.")
+			for _, control := range Windows {
+				control.Alive = false
+			}
+			Alive = false
+			return
+
+		case *sdl.WindowEvent:
+			// Handle specific window close events
+			if e.Event == sdl.WINDOWEVENT_CLOSE {
+				go HandleWindowEvent(e.WindowID)
+			}
+		}
+	}
+}
+
+func HandleWindowEvent(windowID uint32) {
+	Mutex.Lock()
+	defer Mutex.Unlock()
+
+	fmt.Printf("Window %d requested close.\n", windowID)
+	for _, control := range Windows {
+		if control.WindowID == windowID {
+			control.Alive = false
+			delete(Windows, control.ID)
+
+			if len(Windows) == 0 {
+				Alive = false
+				return
 			}
 		}
 	}
@@ -89,6 +108,7 @@ func CreateWindow() *WindowControl {
 
 	w := &WindowControl{}
 	w.ID = NextID()
+	w.WindowID, _ = window.GetID()
 	w.Window = window
 	w.Alive = true
 
