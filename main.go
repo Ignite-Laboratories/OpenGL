@@ -116,9 +116,9 @@ func main() {
 	// Create a GLX context for OpenGL ES 3.2
 	contextAttribs := C.GLXContextAttributes{
 		contextMajorVersion: 3,   // Request OpenGL ES major version 3
-		contextMinorVersion: 3,   // Request OpenGL ES minor version 2
+		contextMinorVersion: 1,   // Request OpenGL ES minor version 2
 		contextFlags:        0,   // No debug or forward-compatible flags
-		profileMask:         0x1, // GLX_CONTEXT_ES2_PROFILE_BIT_EXT for OpenGL ES
+		profileMask:         0x4, // GLX_CONTEXT_ES2_PROFILE_BIT_EXT for OpenGL ES
 	}
 	glxContext := C.createGLXContext(display, fbConfig, nil, C.True, contextAttribs)
 	if glxContext == nil {
@@ -136,11 +136,14 @@ func main() {
 	}
 	log.Printf("OpenGL initialized. Version: %s", gl.GoStr(gl.GetString(gl.VERSION)))
 
-	GetOpenGLMax(display, screen)
 	ver := gl.GoStr(gl.GetString(gl.VERSION))
 	fmt.Println(ver)
-	extensions := gl.GoStr(gl.GetString(gl.EXTENSIONS))
-	for _, extension := range strings.Fields(extensions) {
+
+	numExtensions := int32(0)
+	gl.GetIntegerv(gl.NUM_EXTENSIONS, &numExtensions)
+
+	for i := int32(0); i < numExtensions; i++ {
+		extension := gl.GoStr(gl.GetStringi(gl.EXTENSIONS, uint32(i)))
 		if strings.Contains(extension, "geometry") {
 			fmt.Println(extension)
 		}
@@ -158,42 +161,4 @@ func main() {
 		// Wait a bit (~60 FPS)
 		time.Sleep(16 * time.Millisecond)
 	}
-}
-
-func GetOpenGLMax(display *C.Display, screen C.int) {
-	// Set minimal visual attributes for OpenGL context
-	attributes := []C.int{
-		C.GLX_RGBA,
-		C.GLX_DEPTH_SIZE, 24,
-		C.GLX_DOUBLEBUFFER,
-		0,
-	}
-	visual := C.glXChooseVisual(display, C.int(screen), &attributes[0])
-	if visual == nil {
-		log.Fatal("No appropriate visual found")
-	}
-
-	ctx := C.glXCreateContext(display, visual, nil, C.True)
-	if ctx == nil {
-		log.Fatal("Failed to create an OpenGL context")
-	}
-	defer C.glXDestroyContext(display, ctx)
-
-	// Create a dummy window
-	root := C.XRootWindow(display, C.int(screen))
-	win := C.XCreateSimpleWindow(display, root, 0, 0, 1, 1, 0, 0, 0)
-	C.glXMakeCurrent(display, C.GLXDrawable(win), ctx)
-	defer C.XDestroyWindow(display, win)
-
-	// Get OpenGL version
-	version := C.GoString((*C.char)(unsafe.Pointer(C.glGetString(C.GL_VERSION))))
-	shaderVersion := C.GoString((*C.char)(unsafe.Pointer(C.glGetString(C.GL_SHADING_LANGUAGE_VERSION))))
-	renderer := C.GoString((*C.char)(unsafe.Pointer(C.glGetString(C.GL_RENDERER))))
-	vendor := C.GoString((*C.char)(unsafe.Pointer(C.glGetString(C.GL_VENDOR))))
-
-	// Display OpenGL version information
-	log.Printf("OpenGL Version: %s", version)
-	log.Printf("GLSL Version: %s", shaderVersion)
-	log.Printf("Renderer: %s", renderer)
-	log.Printf("Vendor: %s", vendor)
 }
