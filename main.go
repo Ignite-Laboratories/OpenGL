@@ -38,28 +38,19 @@ type (
 		Sequence  uint32
 		Time_sec  uint64
 		Time_usec uint64
-		Reserved  uint32 // This field is important for alignment
+		Signal    uint32
 	}
 )
 
 const (
-	DRM_VBLANK_RELATIVE        = 0x1
-	DRM_VBLANK_EVENT           = 0x4
-	DRM_VBLANK_HIGH_CRTC_SHIFT = 1
-	DRM_IOCTL_WAIT_VBLANK      = 0x40406420
+	DRM_EVENT_VBLANK      = 0x01
+	DRM_IOCTL_WAIT_VBLANK = 0x40406420
 )
 
-func waitVBlank(file *os.File, crtcID uint32) error {
-	// Calculate the proper type value including the CRTC index
-	vblankType := uint32(DRM_VBLANK_RELATIVE)
-	if crtcID > 1 {
-		// For CRTC indices > 1, we need to use the high CRTC mechanism
-		vblankType |= (crtcID << DRM_VBLANK_HIGH_CRTC_SHIFT)
-	}
-
+func waitVBlank(file *os.File) error {
 	vbl := vblankData{
-		Type:     vblankType,
-		Sequence: 1, // Wait for next vblank
+		Type:     0, // Using absolute vblank counting
+		Sequence: 0, // Wait for the next vblank
 	}
 
 	_, _, err := unix.Syscall(unix.SYS_IOCTL,
@@ -121,25 +112,15 @@ func renderLoop(file *os.File, msets []msetData) {
 		running = false
 	}()
 
-	// Get the CRTC index (should be smaller than the ID)
-	crtcIndex := uint32(0)
-	if len(msets) > 0 {
-		// You might need to calculate the actual index based on your setup
-		// Usually it's a small number (0, 1, 2) rather than the large ID
-		crtcIndex = msets[0].mode.Crtc % 32 // Assuming max 32 CRTCs
-		fmt.Printf("Using CRTC Index: %d (from ID: %d)\n", crtcIndex, msets[0].mode.Crtc)
-	}
-
 	for running {
-		// Wait for VBlank using the CRTC index
-		if len(msets) > 0 {
-			err := waitVBlank(file, crtcIndex)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "VBlank wait error: %s\n", err.Error())
-			}
+		// Simple VBlank wait
+		err := waitVBlank(file)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "VBlank wait error: %s\n", err.Error())
+			// Don't return, just continue with the frame
 		}
 
-		// Rest of your rendering code remains the same
+		// Rest of your rendering code
 		for _, mset := range msets {
 			clearFramebuffer(mset.fb)
 		}
