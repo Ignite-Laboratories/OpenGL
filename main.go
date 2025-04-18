@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"golang.org/x/sys/unix"
 	"image"
+	"os/signal"
 
 	"os"
 	"time"
@@ -70,6 +71,46 @@ func createFramebuffer(file *os.File, dev *mode.Modeset) (framebuffer, error) {
 	return framebuf, nil
 }
 
+func renderLoop(msets []msetData) {
+	running := true
+
+	// Handle Ctrl+C gracefully
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		<-c
+		running = false
+	}()
+
+	for running {
+		// Clear each framebuffer
+		for _, mset := range msets {
+			clearFramebuffer(mset.fb)
+		}
+
+		// Your rendering code here
+		for j := 0; j < len(msets); j++ {
+			mset := msets[j]
+
+			// Example: Draw a moving pattern
+			t := time.Now().UnixNano() / 1000000 // milliseconds
+			for y := uint32(0); y < uint32(mset.mode.Height); y++ {
+				for x := uint32(0); x < uint32(mset.mode.Width); x++ {
+					off := (mset.fb.stride * y) + (x * 4)
+					// Create some animated pattern
+					val := uint32(((x + uint32(t)) ^ y) & 0xFF)
+					color := uint32((val << 16) | (val << 8) | val)
+					*(*uint32)(unsafe.Pointer(&mset.fb.data[off])) = color
+				}
+			}
+		}
+
+		// Small sleep to control frame rate
+		time.Sleep(time.Millisecond * 16) // roughly 60 FPS
+	}
+
+}
+
 func draw(msets []msetData) {
 	var off uint32
 
@@ -100,6 +141,13 @@ func draw(msets []msetData) {
 	}
 
 	time.Sleep(10 * time.Second)
+}
+
+func clearFramebuffer(fb framebuffer) {
+	// Clear the framebuffer by setting all bytes to 0
+	for i := uint64(0); i < fb.size; i++ {
+		fb.data[i] = 0
+	}
 }
 
 func destroyFramebuffer(modeset *mode.SimpleModeset, mset msetData, file *os.File) error {
@@ -177,6 +225,6 @@ func main() {
 		})
 	}
 
-	draw(msets)
+	renderLoop(msets)
 	cleanup(modeset, msets, file)
 }
