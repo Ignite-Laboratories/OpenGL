@@ -1,11 +1,12 @@
 package main
 
-// #cgo CFLAGS: -I/usr/include
+// #cgo CFLAGS: -I/usr/include -I/usr/include/libdrm
 // #cgo LDFLAGS: -lEGL -lGLESv2 -lgbm -ldrm
 // #include <EGL/egl.h>
 // #include <EGL/eglext.h>
 // #include <GLES3/gl31.h>
 // #include <gbm.h>
+// #include <libdrm/drm.h>
 // #include <xf86drm.h>
 // #include <xf86drmMode.h>
 // #include <fcntl.h>
