@@ -1,12 +1,15 @@
 package main
 
 // #cgo CFLAGS: -I/usr/include
-// #cgo LDFLAGS: -lEGL -lGLESv2 -lbcm_host
-// #include <bcm_host.h>
+// #cgo LDFLAGS: -lEGL -lGLESv2 -lgbm -ldrm
 // #include <EGL/egl.h>
 // #include <EGL/eglext.h>
 // #include <GLES3/gl31.h>
-// #include <stdlib.h>
+// #include <gbm.h>
+// #include <xf86drm.h>
+// #include <xf86drmMode.h>
+// #include <fcntl.h>
+// #include <unistd.h>
 import "C"
 import (
 	"fmt"
@@ -28,18 +31,60 @@ func init() {
 }
 
 func initEGL() error {
-	// Initialize Broadcom host
-	C.bcm_host_init()
+	// Open DRM device
+	fd := C.open(C.CString("/dev/dri/card0"), C.O_RDWR)
+	if fd < 0 {
+		return fmt.Errorf("failed to open DRM device")
+	}
+	defer C.close(fd)
 
-	// Get display size
-	var displayWidth, displayHeight C.uint32_t
-	C.graphics_get_display_size(0, &displayWidth, &displayHeight)
-	width = int(displayWidth)
-	height = int(displayHeight)
-	fmt.Printf("Display size: %dx%d\n", width, height)
+	// Create GBM device
+	gbmDevice := C.gbm_create_device(fd)
+	if gbmDevice == nil {
+		return fmt.Errorf("failed to create GBM device")
+	}
+	defer C.gbm_device_destroy(gbmDevice)
+
+	// Get the default connector
+	resources := C.drmModeGetResources(fd)
+	if resources == nil {
+		return fmt.Errorf("failed to get DRM resources")
+	}
+	defer C.drmModeFreeResources(resources)
+
+	var connector *C.drmModeConnector
+	for i := 0; i < int(resources.count_connectors); i++ {
+		conn := C.drmModeGetConnector(fd, C.uint32_t(*((*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(resources.connectors))+uintptr(i)*4))))
+		if conn.connection == C.DRM_MODE_CONNECTED {
+			connector = conn
+			break
+		}
+		C.drmModeFreeConnector(conn)
+	}
+	if connector == nil {
+		return fmt.Errorf("no connected connector found")
+	}
+	defer C.drmModeFreeConnector(connector)
+
+	// Get the preferred mode
+	mode := (*C.drmModeModeInfo)(unsafe.Pointer(connector.modes))
+	width = int(mode.hdisplay)
+	height = int(mode.vdisplay)
+
+	// Create GBM surface
+	gbmSurface := C.gbm_surface_create(
+		gbmDevice,
+		C.uint32_t(width),
+		C.uint32_t(height),
+		C.GBM_FORMAT_XRGB8888,
+		C.GBM_BO_USE_SCANOUT|C.GBM_BO_USE_RENDERING)
+	if gbmSurface == nil {
+		return fmt.Errorf("failed to create GBM surface")
+	}
+	defer C.gbm_surface_destroy(gbmSurface)
 
 	// Get EGL display
-	display = C.eglGetDisplay(C.EGL_DEFAULT_DISPLAY)
+	display = C.eglGetDisplay(C.EGLDisplay(unsafe.Pointer(gbmDevice)))
 	if display == nil {
 		return fmt.Errorf("failed to get EGL display")
 	}
@@ -49,17 +94,14 @@ func initEGL() error {
 	if C.eglInitialize(display, &major, &minor) == C.EGL_FALSE {
 		return fmt.Errorf("failed to initialize EGL")
 	}
-	fmt.Printf("EGL version: %d.%d\n", major, minor)
 
 	// Configure EGL
 	configAttribs := []C.EGLint{
+		C.EGL_SURFACE_TYPE, C.EGL_WINDOW_BIT,
 		C.EGL_RED_SIZE, 8,
 		C.EGL_GREEN_SIZE, 8,
 		C.EGL_BLUE_SIZE, 8,
-		C.EGL_ALPHA_SIZE, 8,
-		C.EGL_DEPTH_SIZE, 24,
-		C.EGL_SURFACE_TYPE, C.EGL_WINDOW_BIT,
-		C.EGL_CONFORMANT, C.EGL_OPENGL_ES3_BIT,
+		C.EGL_ALPHA_SIZE, 0,
 		C.EGL_RENDERABLE_TYPE, C.EGL_OPENGL_ES3_BIT,
 		C.EGL_NONE,
 	}
@@ -70,48 +112,8 @@ func initEGL() error {
 		return fmt.Errorf("failed to choose EGL config")
 	}
 
-	// Create the native window
-	var dstRect, srcRect C.VC_RECT_T
-	dstRect.x = 0
-	dstRect.y = 0
-	dstRect.width = C.int32_t(width)
-	dstRect.height = C.int32_t(height)
-
-	srcRect.x = 0
-	srcRect.y = 0
-	srcRect.width = C.int32_t(width << 16)
-	srcRect.height = C.int32_t(height << 16)
-
-	var dispmanDisplay C.DISPMANX_DISPLAY_HANDLE_T
-	var dispmanUpdate C.DISPMANX_UPDATE_HANDLE_T
-	var dispmanElement C.DISPMANX_ELEMENT_HANDLE_T
-
-	dispmanDisplay = C.vc_dispmanx_display_open(0)
-	dispmanUpdate = C.vc_dispmanx_update_start(0)
-
-	var alpha C.VC_DISPMANX_ALPHA_T
-	alpha._type = C.DISPMANX_FLAGS_ALPHA_FIXED_ALL_PIXELS
-	alpha.opacity = 255
-	alpha.mask = 0
-
-	dispmanElement = C.vc_dispmanx_element_add(
-		dispmanUpdate,
-		dispmanDisplay,
-		0, &dstRect,
-		0, &srcRect,
-		C.DISPMANX_PROTECTION_NONE,
-		&alpha,
-		nil, 0)
-
-	C.vc_dispmanx_update_submit_sync(dispmanUpdate)
-
-	// Create window surface
-	var nativewindow C.EGL_DISPMANX_WINDOW_T
-	nativewindow.element = dispmanElement
-	nativewindow.width = C.uint32_t(width)
-	nativewindow.height = C.uint32_t(height)
-
-	surface = C.eglCreateWindowSurface(display, config, C.EGLNativeWindowType(unsafe.Pointer(&nativewindow)), nil)
+	// Create EGL surface
+	surface = C.eglCreateWindowSurface(display, config, C.EGLNativeWindowType(gbmSurface), nil)
 	if surface == nil {
 		return fmt.Errorf("failed to create window surface")
 	}
@@ -136,7 +138,7 @@ func initEGL() error {
 	return nil
 }
 
-func createShaderProgram() (uint32, error) {
+0func createShaderProgram() (uint32, error) {
 	vertexShader := `#version 310 es
     layout(location = 0) in vec3 position;
     layout(location = 1) in vec3 color;
