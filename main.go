@@ -281,8 +281,8 @@ func main() {
 		}
 	}
 
-	caps := mode.GetCap(file)
-	fmt.Printf("DRM Device Capabilities: %+v\n", caps)
+	//caps := mode.GetCap(file)
+	//fmt.Printf("DRM Device Capabilities: %+v\n", caps)
 
 	//renderLoop(file, msets)
 	cleanup(modeset, msets, file)
