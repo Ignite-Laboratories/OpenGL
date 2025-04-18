@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
+	"golang.org/x/sys/unix"
 	"image"
+
 	"os"
 	"time"
 	"unsafe"
-
-	"launchpad.net/gommap"
 
 	_ "image/jpeg"
 
@@ -52,7 +52,7 @@ func createFramebuffer(file *os.File, dev *mode.Modeset) (framebuffer, error) {
 		return framebuffer{}, err
 	}
 
-	mmap, err := gommap.MapAt(0, uintptr(file.Fd()), int64(offset), int64(size), gommap.PROT_READ|gommap.PROT_WRITE, gommap.MAP_SHARED)
+	mmap, err := unix.Mmap(int(file.Fd()), int64(offset), int(size), unix.PROT_READ|unix.PROT_WRITE, unix.MAP_SHARED)
 	if err != nil {
 		return framebuffer{}, fmt.Errorf("Failed to mmap framebuffer: %s", err.Error())
 	}
@@ -107,7 +107,7 @@ func destroyFramebuffer(modeset *mode.SimpleModeset, mset msetData, file *os.Fil
 	data := mset.fb.data
 	fb := mset.fb
 
-	err := gommap.MMap(data).UnsafeUnmap()
+	err := unix.Munmap(data)
 	if err != nil {
 		return fmt.Errorf("Failed to munmap memory: %s\n", err.Error())
 	}
