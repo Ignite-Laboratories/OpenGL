@@ -157,7 +157,7 @@ func renderLoop(file *os.File, msets []msetData) {
 			}
 		}
 
-		time.Sleep(16 * time.Millisecond)
+		time.Sleep(32 * time.Millisecond)
 	}
 }
 
