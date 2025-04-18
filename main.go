@@ -1,278 +1,182 @@
 package main
 
-// #cgo CFLAGS: -I/usr/include -I/usr/include/libdrm
-// #cgo LDFLAGS: -lEGL -lGLESv2 -lgbm -ldrm
-// #include <EGL/egl.h>
-// #include <EGL/eglext.h>
-// #include <GLES3/gl31.h>
-// #include <gbm.h>
-// #include <libdrm/drm.h>
-// #include <xf86drm.h>
-// #include <xf86drmMode.h>
-// #include <fcntl.h>
-// #include <unistd.h>
-import "C"
 import (
 	"fmt"
-	"github.com/go-gl/gl/v3.1/gles2"
-	"runtime"
+	"image"
+	"os"
+	"time"
 	"unsafe"
+
+	"launchpad.net/gommap"
+
+	_ "image/jpeg"
+
+	"github.com/NeowayLabs/drm"
+	"github.com/NeowayLabs/drm/mode"
 )
 
-var (
-	display C.EGLDisplay
-	surface C.EGLSurface
-	context C.EGLContext
-	width   int
-	height  int
+type (
+	framebuffer struct {
+		id     uint32
+		handle uint32
+		data   []byte
+		fb     *mode.FB
+		size   uint64
+		stride uint32
+	}
+
+	// msetData just store the pair (mode, fb) and the saved CRTC of the mode.
+	msetData struct {
+		mode      *mode.Modeset
+		fb        framebuffer
+		savedCrtc *mode.Crtc
+	}
 )
 
-func init() {
-	runtime.LockOSThread()
+func createFramebuffer(file *os.File, dev *mode.Modeset) (framebuffer, error) {
+	fb, err := mode.CreateFB(file, dev.Width, dev.Height, 32)
+	if err != nil {
+		return framebuffer{}, fmt.Errorf("Failed to create framebuffer: %s", err.Error())
+	}
+	stride := fb.Pitch
+	size := fb.Size
+	handle := fb.Handle
+
+	fbID, err := mode.AddFB(file, dev.Width, dev.Height, 24, 32, stride, handle)
+	if err != nil {
+		return framebuffer{}, fmt.Errorf("Cannot create dumb buffer: %s", err.Error())
+	}
+
+	offset, err := mode.MapDumb(file, handle)
+	if err != nil {
+		return framebuffer{}, err
+	}
+
+	mmap, err := gommap.MapAt(0, uintptr(file.Fd()), int64(offset), int64(size), gommap.PROT_READ|gommap.PROT_WRITE, gommap.MAP_SHARED)
+	if err != nil {
+		return framebuffer{}, fmt.Errorf("Failed to mmap framebuffer: %s", err.Error())
+	}
+	for i := uint64(0); i < size; i++ {
+		mmap[i] = 0
+	}
+	framebuf := framebuffer{
+		id:     fbID,
+		handle: handle,
+		data:   mmap,
+		fb:     fb,
+		size:   size,
+		stride: stride,
+	}
+	return framebuf, nil
 }
 
-func initEGL() error {
-	// Open DRM device
-	fd := C.open(C.CString("/dev/dri/card0"), C.O_RDWR)
-	if fd < 0 {
-		return fmt.Errorf("failed to open DRM device")
-	}
-	defer C.close(fd)
+func draw(msets []msetData) {
+	var off uint32
 
-	// Create GBM device
-	gbmDevice := C.gbm_create_device(fd)
-	if gbmDevice == nil {
-		return fmt.Errorf("failed to create GBM device")
+	reader, err := os.Open("glenda.jpg")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
+		return
 	}
-	defer C.gbm_device_destroy(gbmDevice)
+	defer reader.Close()
 
-	// Get the default connector
-	resources := C.drmModeGetResources(fd)
-	if resources == nil {
-		return fmt.Errorf("failed to get DRM resources")
+	m, _, err := image.Decode(reader)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
+		return
 	}
-	defer C.drmModeFreeResources(resources)
+	bounds := m.Bounds()
 
-	var connector *C.drmModeConnector
-	for i := 0; i < int(resources.count_connectors); i++ {
-		conn := C.drmModeGetConnector(fd, C.uint32_t(*((*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(resources.connectors)) + uintptr(i)*4)))))
-		if conn.connection == C.DRM_MODE_CONNECTED {
-			connector = conn
-			break
+	for j := 0; j < len(msets); j++ {
+		mset := msets[j]
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				r, g, b, _ := m.At(x, y).RGBA()
+				off = (mset.fb.stride * uint32(y)) + (uint32(x) * 4)
+				val := uint32((uint32(r) << 16) | (uint32(g) << 8) | uint32(b))
+				*(*uint32)(unsafe.Pointer(&mset.fb.data[off])) = val
+			}
 		}
-		C.drmModeFreeConnector(conn)
-	}
-	if connector == nil {
-		return fmt.Errorf("no connected connector found")
-	}
-	defer C.drmModeFreeConnector(connector)
-
-	// Get the preferred mode
-	mode := (*C.drmModeModeInfo)(unsafe.Pointer(connector.modes))
-	width = int(mode.hdisplay)
-	height = int(mode.vdisplay)
-
-	// Create GBM surface
-	gbmSurface := C.gbm_surface_create(
-		gbmDevice,
-		C.uint32_t(width),
-		C.uint32_t(height),
-		C.GBM_FORMAT_XRGB8888,
-		C.GBM_BO_USE_SCANOUT|C.GBM_BO_USE_RENDERING)
-	if gbmSurface == nil {
-		return fmt.Errorf("failed to create GBM surface")
-	}
-	defer C.gbm_surface_destroy(gbmSurface)
-
-	// Get EGL display
-	display = C.eglGetDisplay(C.EGLDisplay(unsafe.Pointer(gbmDevice)))
-	if display == nil {
-		return fmt.Errorf("failed to get EGL display")
 	}
 
-	// Initialize EGL
-	var major, minor C.EGLint
-	if C.eglInitialize(display, &major, &minor) == C.EGL_FALSE {
-		return fmt.Errorf("failed to initialize EGL")
-	}
-
-	// Configure EGL
-	configAttribs := []C.EGLint{
-		C.EGL_SURFACE_TYPE, C.EGL_WINDOW_BIT,
-		C.EGL_RED_SIZE, 8,
-		C.EGL_GREEN_SIZE, 8,
-		C.EGL_BLUE_SIZE, 8,
-		C.EGL_ALPHA_SIZE, 0,
-		C.EGL_RENDERABLE_TYPE, C.EGL_OPENGL_ES3_BIT,
-		C.EGL_NONE,
-	}
-
-	var config C.EGLConfig
-	var numConfigs C.EGLint
-	if C.eglChooseConfig(display, &configAttribs[0], &config, 1, &numConfigs) == C.EGL_FALSE {
-		return fmt.Errorf("failed to choose EGL config")
-	}
-
-	// Create EGL surface
-	surface = C.eglCreateWindowSurface(display, config, C.EGLNativeWindowType(gbmSurface), nil)
-	if surface == nil {
-		return fmt.Errorf("failed to create window surface")
-	}
-
-	// Create OpenGL ES context
-	contextAttribs := []C.EGLint{
-		C.EGL_CONTEXT_CLIENT_VERSION, 3,
-		C.EGL_CONTEXT_MINOR_VERSION, 1,
-		C.EGL_NONE,
-	}
-
-	context = C.eglCreateContext(display, config, nil, &contextAttribs[0])
-	if context == nil {
-		return fmt.Errorf("failed to create EGL context")
-	}
-
-	// Make context current
-	if C.eglMakeCurrent(display, surface, surface, context) == C.EGL_FALSE {
-		return fmt.Errorf("failed to make context current")
-	}
-
-	return nil
+	time.Sleep(10 * time.Second)
 }
 
-func createShaderProgram() (uint32, error) {
-	vertexShader := `#version 310 es
-    layout(location = 0) in vec3 position;
-    layout(location = 1) in vec3 color;
-    out vec3 fragColor;
-    
-    void main() {
-        gl_Position = vec4(position, 1.0);
-        fragColor = color;
-    }`
+func destroyFramebuffer(modeset *mode.SimpleModeset, mset msetData, file *os.File) error {
+	handle := mset.fb.handle
+	data := mset.fb.data
+	fb := mset.fb
 
-	fragmentShader := `#version 310 es
-    precision mediump float;
-    in vec3 fragColor;
-    out vec4 outColor;
-    
-    void main() {
-        outColor = vec4(fragColor, 1.0);
-    }`
-
-	// Compile vertex shader
-	vs := gles2.CreateShader(gles2.VERTEX_SHADER)
-	csource, free := gles2.Strs(vertexShader)
-	gles2.ShaderSource(vs, 1, csource, nil)
-	free()
-	gles2.CompileShader(vs)
-	var status int32
-	gles2.GetShaderiv(vs, gles2.COMPILE_STATUS, &status)
-	if status == gles2.FALSE {
-		var logLength int32
-		gles2.GetShaderiv(vs, gles2.INFO_LOG_LENGTH, &logLength)
-		log := make([]byte, logLength)
-		gles2.GetShaderInfoLog(vs, logLength, nil, &log[0])
-		return 0, fmt.Errorf("vertex shader compilation failed: %s", string(log))
+	err := gommap.MMap(data).UnsafeUnmap()
+	if err != nil {
+		return fmt.Errorf("Failed to munmap memory: %s\n", err.Error())
+	}
+	err = mode.RmFB(file, fb.id)
+	if err != nil {
+		return fmt.Errorf("Failed to remove frame buffer: %s\n", err.Error())
 	}
 
-	// Compile fragment shader
-	fs := gles2.CreateShader(gles2.FRAGMENT_SHADER)
-	csource, free = gles2.Strs(fragmentShader)
-	gles2.ShaderSource(fs, 1, csource, nil)
-	free()
-	gles2.CompileShader(fs)
-	gles2.GetShaderiv(fs, gles2.COMPILE_STATUS, &status)
-	if status == gles2.FALSE {
-		var logLength int32
-		gles2.GetShaderiv(fs, gles2.INFO_LOG_LENGTH, &logLength)
-		log := make([]byte, logLength)
-		gles2.GetShaderInfoLog(fs, logLength, nil, &log[0])
-		return 0, fmt.Errorf("fragment shader compilation failed: %s", string(log))
+	err = mode.DestroyDumb(file, handle)
+	if err != nil {
+		return fmt.Errorf("Failed to destroy dumb buffer: %s\n", err.Error())
+	}
+	return modeset.SetCrtc(mset.mode, mset.savedCrtc)
+}
+
+func cleanup(modeset *mode.SimpleModeset, msets []msetData, file *os.File) {
+	for _, mset := range msets {
+		destroyFramebuffer(modeset, mset, file)
 	}
 
-	// Create and link program
-	program := gles2.CreateProgram()
-	gles2.AttachShader(program, vs)
-	gles2.AttachShader(program, fs)
-	gles2.LinkProgram(program)
-	gles2.GetProgramiv(program, gles2.LINK_STATUS, &status)
-	if status == gles2.FALSE {
-		var logLength int32
-		gles2.GetProgramiv(program, gles2.INFO_LOG_LENGTH, &logLength)
-		log := make([]byte, logLength)
-		gles2.GetProgramInfoLog(program, logLength, nil, &log[0])
-		return 0, fmt.Errorf("program link failed: %s", string(log))
-	}
-
-	gles2.DeleteShader(vs)
-	gles2.DeleteShader(fs)
-
-	return program, nil
 }
 
 func main() {
-	if err := initEGL(); err != nil {
-		fmt.Printf("Failed to initialize EGL: %v\n", err)
-		return
-	}
-	defer C.eglTerminate(display)
-
-	if err := gles2.Init(); err != nil {
-		fmt.Printf("Failed to initialize GLES: %v\n", err)
-		return
-	}
-
-	// Print OpenGL ES version info
-	fmt.Printf("OpenGL ES Version: %s\n", gles2.GoStr(gles2.GetString(gles2.VERSION)))
-	fmt.Printf("GLSL ES Version: %s\n", gles2.GoStr(gles2.GetString(gles2.SHADING_LANGUAGE_VERSION)))
-
-	program, err := createShaderProgram()
+	file, err := drm.OpenCard(0)
 	if err != nil {
-		fmt.Printf("Failed to create shader program: %v\n", err)
+		fmt.Printf("error: %s", err.Error())
 		return
 	}
-	defer gles2.DeleteProgram(program)
-
-	// Create vertex data for a colorful triangle
-	vertices := []float32{
-		// Position (X, Y, Z)    Color (R, G, B)
-		0.0, 0.5, 0.0, 1.0, 0.0, 0.0, // Top vertex (red)
-		-0.5, -0.5, 0.0, 0.0, 1.0, 0.0, // Bottom left vertex (green)
-		0.5, -0.5, 0.0, 0.0, 0.0, 1.0, // Bottom right vertex (blue)
+	defer file.Close()
+	if !drm.HasDumbBuffer(file) {
+		fmt.Printf("drm device does not support dumb buffers")
+		return
+	}
+	modeset, err := mode.NewSimpleModeset(file)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
+		os.Exit(1)
 	}
 
-	// Create and bind VAO
-	var vao uint32
-	gles2.GenVertexArrays(1, &vao)
-	gles2.BindVertexArray(vao)
-	defer gles2.DeleteVertexArrays(1, &vao)
+	var msets []msetData
+	for _, mod := range modeset.Modesets {
+		framebuf, err := createFramebuffer(file, &mod)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
+			cleanup(modeset, msets, file)
+			return
+		}
 
-	// Create and bind VBO
-	var vbo uint32
-	gles2.GenBuffers(1, &vbo)
-	gles2.BindBuffer(gles2.ARRAY_BUFFER, vbo)
-	gles2.BufferData(gles2.ARRAY_BUFFER, len(vertices)*4, gles2.Ptr(vertices), gles2.STATIC_DRAW)
-	defer gles2.DeleteBuffers(1, &vbo)
-
-	// Position attribute
-	gles2.VertexAttribPointer(0, 3, gles2.FLOAT, false, 6*4, gles2.PtrOffset(0))
-	gles2.EnableVertexAttribArray(0)
-	// Color attribute
-	gles2.VertexAttribPointer(1, 3, gles2.FLOAT, false, 6*4, gles2.PtrOffset(3*4))
-	gles2.EnableVertexAttribArray(1)
-
-	// Main render loop
-	for {
-		// Clear the screen
-		gles2.ClearColor(0.2, 0.3, 0.3, 1.0)
-		gles2.Clear(gles2.COLOR_BUFFER_BIT)
-
-		// Draw the triangle
-		gles2.UseProgram(program)
-		gles2.BindVertexArray(vao)
-		gles2.DrawArrays(gles2.TRIANGLES, 0, 3)
-
-		// Swap buffers
-		C.eglSwapBuffers(display, surface)
+		// save current CRTC of this mode to restore at exit
+		savedCrtc, err := mode.GetCrtc(file, mod.Crtc)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: Cannot get CRTC for connector %d: %s", mod.Conn, err.Error())
+			cleanup(modeset, msets, file)
+			return
+		}
+		// change the mode
+		err = mode.SetCrtc(file, mod.Crtc, framebuf.id, 0, 0, &mod.Conn, 1, &mod.Mode)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Cannot set CRTC for connector %d: %s", mod.Conn, err.Error())
+			cleanup(modeset, msets, file)
+			return
+		}
+		msets = append(msets, msetData{
+			mode:      &mod,
+			fb:        framebuf,
+			savedCrtc: savedCrtc,
+		})
 	}
+
+	draw(msets)
+	cleanup(modeset, msets, file)
 }
