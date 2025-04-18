@@ -117,6 +117,8 @@ func renderLoop(file *os.File, msets []msetData) {
 		// Wait for VBlank on the first CRTC only
 		// Most systems only need one VBlank wait
 		if len(msets) > 0 {
+			fmt.Printf("Using CRTC ID: %d\n", msets[0].mode.Crtc)
+
 			err := waitVBlank(file, msets[0].mode.Crtc)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "VBlank wait error: %s\n", err.Error())
