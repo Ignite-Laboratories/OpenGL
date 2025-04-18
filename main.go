@@ -32,21 +32,27 @@ type (
 		fb        framebuffer
 		savedCrtc *mode.Crtc
 	}
+
+	vblankData struct {
+		Type      uint32 // Type of sync to perform
+		Sequence  uint32 // Sequence number to wait for
+		Time_sec  uint64 // Timestamp in seconds
+		Time_usec uint64 // Timestamp in microseconds
+		CrtcID    uint32 // CRTC ID for the sync request
+	}
 )
 
-type vblankData struct {
-	Sequence  uint32
-	Time_sec  uint64
-	Time_usec uint64
-}
+const (
+	DRM_VBLANK_RELATIVE   = 0x1
+	DRM_IOCTL_WAIT_VBLANK = 0x40406420
+)
 
-// Add this function to handle VBlank waiting
 func waitVBlank(file *os.File, crtcID uint32) error {
-	vbl := vblankData{}
-
-	// DRM_IOCTL_WAIT_VBLANK is 0x40406420
-	// You might need to adjust this value depending on your system
-	const DRM_IOCTL_WAIT_VBLANK = 0x40406420
+	vbl := vblankData{
+		Type:     DRM_VBLANK_RELATIVE, // We want to wait for the next VBlank
+		Sequence: 1,                   // Wait for the next VBlank event
+		CrtcID:   crtcID,              // Specify which CRTC we're waiting for
+	}
 
 	_, _, err := unix.Syscall(unix.SYS_IOCTL,
 		file.Fd(),
@@ -100,7 +106,6 @@ func createFramebuffer(file *os.File, dev *mode.Modeset) (framebuffer, error) {
 func renderLoop(file *os.File, msets []msetData) {
 	running := true
 
-	// Handle Ctrl+C gracefully
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	go func() {
@@ -109,16 +114,16 @@ func renderLoop(file *os.File, msets []msetData) {
 	}()
 
 	for running {
-		// Wait for VBlank before rendering the next frame
-		for _, mset := range msets {
-			err := waitVBlank(file, mset.mode.Crtc)
+		// Wait for VBlank on the first CRTC only
+		// Most systems only need one VBlank wait
+		if len(msets) > 0 {
+			err := waitVBlank(file, msets[0].mode.Crtc)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "VBlank wait error: %s\n", err.Error())
-				continue
 			}
 		}
 
-		// Clear each framebuffer
+		// Rest of your rendering code...
 		for _, mset := range msets {
 			clearFramebuffer(mset.fb)
 		}
@@ -126,9 +131,7 @@ func renderLoop(file *os.File, msets []msetData) {
 		// Your rendering code here
 		for j := 0; j < len(msets); j++ {
 			mset := msets[j]
-
-			// Example: Draw a moving pattern
-			t := time.Now().UnixNano() / 1000000 // milliseconds
+			t := time.Now().UnixNano() / 1000000
 			for y := uint32(0); y < uint32(mset.mode.Height); y++ {
 				for x := uint32(0); x < uint32(mset.mode.Width); x++ {
 					off := (mset.fb.stride * y) + (x * 4)
@@ -138,9 +141,6 @@ func renderLoop(file *os.File, msets []msetData) {
 				}
 			}
 		}
-
-		// Remove the sleep since we're using VBlank synchronization
-		// time.Sleep(time.Millisecond * 16) // This is no longer needed
 	}
 }
 
