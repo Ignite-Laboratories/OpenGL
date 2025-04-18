@@ -34,6 +34,32 @@ type (
 	}
 )
 
+type vblankData struct {
+	Sequence  uint32
+	Time_sec  uint64
+	Time_usec uint64
+}
+
+// Add this function to handle VBlank waiting
+func waitVBlank(file *os.File, crtcID uint32) error {
+	vbl := vblankData{}
+
+	// DRM_IOCTL_WAIT_VBLANK is 0x40406420
+	// You might need to adjust this value depending on your system
+	const DRM_IOCTL_WAIT_VBLANK = 0x40406420
+
+	_, _, err := unix.Syscall(unix.SYS_IOCTL,
+		file.Fd(),
+		DRM_IOCTL_WAIT_VBLANK,
+		uintptr(unsafe.Pointer(&vbl)))
+
+	if err != 0 {
+		return fmt.Errorf("vblank wait failed: %v", err)
+	}
+
+	return nil
+}
+
 func createFramebuffer(file *os.File, dev *mode.Modeset) (framebuffer, error) {
 	fb, err := mode.CreateFB(file, dev.Width, dev.Height, 32)
 	if err != nil {
@@ -71,7 +97,7 @@ func createFramebuffer(file *os.File, dev *mode.Modeset) (framebuffer, error) {
 	return framebuf, nil
 }
 
-func renderLoop(msets []msetData) {
+func renderLoop(file *os.File, msets []msetData) {
 	running := true
 
 	// Handle Ctrl+C gracefully
@@ -83,6 +109,15 @@ func renderLoop(msets []msetData) {
 	}()
 
 	for running {
+		// Wait for VBlank before rendering the next frame
+		for _, mset := range msets {
+			err := waitVBlank(file, mset.mode.Crtc)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "VBlank wait error: %s\n", err.Error())
+				continue
+			}
+		}
+
 		// Clear each framebuffer
 		for _, mset := range msets {
 			clearFramebuffer(mset.fb)
@@ -97,7 +132,6 @@ func renderLoop(msets []msetData) {
 			for y := uint32(0); y < uint32(mset.mode.Height); y++ {
 				for x := uint32(0); x < uint32(mset.mode.Width); x++ {
 					off := (mset.fb.stride * y) + (x * 4)
-					// Create some animated pattern
 					val := uint32(((x + uint32(t)) ^ y) & 0xFF)
 					color := uint32((val << 16) | (val << 8) | val)
 					*(*uint32)(unsafe.Pointer(&mset.fb.data[off])) = color
@@ -105,10 +139,9 @@ func renderLoop(msets []msetData) {
 			}
 		}
 
-		// Small sleep to control frame rate
-		time.Sleep(time.Millisecond * 16) // roughly 60 FPS
+		// Remove the sleep since we're using VBlank synchronization
+		// time.Sleep(time.Millisecond * 16) // This is no longer needed
 	}
-
 }
 
 func draw(msets []msetData) {
@@ -225,6 +258,6 @@ func main() {
 		})
 	}
 
-	renderLoop(msets)
+	renderLoop(file, msets)
 	cleanup(modeset, msets, file)
 }
