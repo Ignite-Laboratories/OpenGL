@@ -34,24 +34,32 @@ type (
 	}
 
 	vblankData struct {
-		Type      uint32 // Type of sync to perform
-		Sequence  uint32 // Sequence number to wait for
-		Time_sec  uint64 // Timestamp in seconds
-		Time_usec uint64 // Timestamp in microseconds
-		CrtcID    uint32 // CRTC ID for the sync request
+		Type      uint32
+		Sequence  uint32
+		Time_sec  uint64
+		Time_usec uint64
+		Reserved  uint32 // This field is important for alignment
 	}
 )
 
 const (
-	DRM_VBLANK_RELATIVE   = 0x1
-	DRM_IOCTL_WAIT_VBLANK = 0x40406420
+	DRM_VBLANK_RELATIVE        = 0x1
+	DRM_VBLANK_EVENT           = 0x4
+	DRM_VBLANK_HIGH_CRTC_SHIFT = 1
+	DRM_IOCTL_WAIT_VBLANK      = 0x40406420
 )
 
 func waitVBlank(file *os.File, crtcID uint32) error {
+	// Calculate the proper type value including the CRTC index
+	vblankType := uint32(DRM_VBLANK_RELATIVE)
+	if crtcID > 1 {
+		// For CRTC indices > 1, we need to use the high CRTC mechanism
+		vblankType |= (crtcID << DRM_VBLANK_HIGH_CRTC_SHIFT)
+	}
+
 	vbl := vblankData{
-		Type:     DRM_VBLANK_RELATIVE, // We want to wait for the next VBlank
-		Sequence: 1,                   // Wait for the next VBlank event
-		CrtcID:   crtcID,              // Specify which CRTC we're waiting for
+		Type:     vblankType,
+		Sequence: 1, // Wait for next vblank
 	}
 
 	_, _, err := unix.Syscall(unix.SYS_IOCTL,
@@ -113,24 +121,29 @@ func renderLoop(file *os.File, msets []msetData) {
 		running = false
 	}()
 
-	for running {
-		// Wait for VBlank on the first CRTC only
-		// Most systems only need one VBlank wait
-		if len(msets) > 0 {
-			fmt.Printf("Using CRTC ID: %d\n", msets[0].mode.Crtc)
+	// Get the CRTC index (should be smaller than the ID)
+	crtcIndex := uint32(0)
+	if len(msets) > 0 {
+		// You might need to calculate the actual index based on your setup
+		// Usually it's a small number (0, 1, 2) rather than the large ID
+		crtcIndex = msets[0].mode.Crtc % 32 // Assuming max 32 CRTCs
+		fmt.Printf("Using CRTC Index: %d (from ID: %d)\n", crtcIndex, msets[0].mode.Crtc)
+	}
 
-			err := waitVBlank(file, msets[0].mode.Crtc)
+	for running {
+		// Wait for VBlank using the CRTC index
+		if len(msets) > 0 {
+			err := waitVBlank(file, crtcIndex)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "VBlank wait error: %s\n", err.Error())
 			}
 		}
 
-		// Rest of your rendering code...
+		// Rest of your rendering code remains the same
 		for _, mset := range msets {
 			clearFramebuffer(mset.fb)
 		}
 
-		// Your rendering code here
 		for j := 0; j < len(msets); j++ {
 			mset := msets[j]
 			t := time.Now().UnixNano() / 1000000
