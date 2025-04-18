@@ -54,7 +54,7 @@ func initEGL() error {
 
 	var connector *C.drmModeConnector
 	for i := 0; i < int(resources.count_connectors); i++ {
-		conn := C.drmModeGetConnector(fd, C.uint32_t(*((*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(resources.connectors))+uintptr(i)*4))))
+		conn := C.drmModeGetConnector(fd, C.uint32_t(*((*uint32)(unsafe.Pointer(uintptr(unsafe.Pointer(resources.connectors)) + uintptr(i)*4)))))
 		if conn.connection == C.DRM_MODE_CONNECTED {
 			connector = conn
 			break
@@ -138,7 +138,7 @@ func initEGL() error {
 	return nil
 }
 
-0func createShaderProgram() (uint32, error) {
+func createShaderProgram() (uint32, error) {
 	vertexShader := `#version 310 es
     layout(location = 0) in vec3 position;
     layout(location = 1) in vec3 color;
