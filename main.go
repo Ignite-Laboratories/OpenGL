@@ -264,7 +264,12 @@ func main() {
 
 	//caps := mode.GetCap(file)
 	//fmt.Printf("DRM Device Capabilities: %+v\n", caps)
+	buffer := make([]byte, 1024)
+	_, err = unix.Read(int(file.Fd()), buffer)
+	if err != nil {
+		fmt.Printf("DRM event reading test: %v\n", err)
+	}
 
-	renderLoop(file, msets)
+	//renderLoop(file, msets)
 	cleanup(modeset, msets, file)
 }
