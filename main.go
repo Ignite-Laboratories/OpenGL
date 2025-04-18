@@ -156,8 +156,6 @@ func renderLoop(file *os.File, msets []msetData) {
 				}
 			}
 		}
-
-		time.Sleep(32 * time.Millisecond)
 	}
 }
 
@@ -274,7 +272,18 @@ func main() {
 			savedCrtc: savedCrtc,
 		})
 	}
+	if len(msets) > 0 {
+		props, err := mode.GetCrtc(file, msets[0].mode.Crtc)
+		if err != nil {
+			fmt.Printf("Error getting CRTC properties: %v\n", err)
+		} else {
+			fmt.Printf("CRTC Properties: %+v\n", props)
+		}
+	}
 
-	renderLoop(file, msets)
+	caps := mode.GetCap(file)
+	fmt.Printf("DRM Device Capabilities: %+v\n", caps)
+
+	//renderLoop(file, msets)
 	cleanup(modeset, msets, file)
 }
