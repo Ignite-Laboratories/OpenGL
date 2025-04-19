@@ -130,7 +130,33 @@ func clearFramebuffer(fb framebuffer) {
 	}
 }
 
+func clearFramebufferWithColor(fb framebuffer, r, g, b uint8) {
+	if fb.data == nil || len(fb.data) == 0 {
+		return
+	}
+
+	color := uint32((uint32(r) << 16) | (uint32(g) << 8) | uint32(b))
+
+	// Clear buffer 32 bits at a time
+	for y := uint32(0); y < fb.fb.Height; y++ {
+		for x := uint32(0); x < fb.fb.Width; x++ {
+			off := (fb.stride * y) + (x * 4)
+			*(*uint32)(unsafe.Pointer(&fb.data[off])) = color
+		}
+	}
+}
+
 func pageFlip(file *os.File, crtcID uint32, fbID uint32) error {
+	// Add debug info
+	fmt.Printf("Attempting page flip: CRTC ID: %d, FB ID: %d\n", crtcID, fbID)
+
+	// Check if the framebuffer is valid
+	fbInfo, err := mode.GetFB(file, fbID)
+	if err != nil {
+		return fmt.Errorf("invalid framebuffer ID %d: %v", fbID, err)
+	}
+	fmt.Printf("FB Info: %+v\n", fbInfo)
+
 	type pageFlipData struct {
 		crtc_id   uint32
 		fb_id     uint32
