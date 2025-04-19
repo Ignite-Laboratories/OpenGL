@@ -121,17 +121,13 @@ func createBufferSet(file *os.File, dev *mode.Modeset) (*bufferSet, error) {
 	}, nil
 }
 
-func checkDeviceCapabilities(file *os.File) error {
-	caps, err := mode.GetCap(file)
-	if err != nil {
-		return fmt.Errorf("failed to get device capabilities: %v", err)
+func clearFramebuffer(fb framebuffer) {
+	// Clear the framebuffer by setting all bytes to 0
+	if fb.data != nil && len(fb.data) > 0 {
+		for i := uint64(0); i < fb.size; i++ {
+			fb.data[i] = 0
+		}
 	}
-
-	if caps.AsyncPageFlip == 0 {
-		fmt.Println("Warning: Device doesn't support async page flips")
-	}
-
-	return nil
 }
 
 func pageFlip(file *os.File, crtcID uint32, fbID uint32) error {
@@ -240,12 +236,6 @@ func main() {
 
 	if !drm.HasDumbBuffer(file) {
 		fmt.Printf("drm device does not support dumb buffers")
-		return
-	}
-
-	// Check device capabilities
-	if err := checkDeviceCapabilities(file); err != nil {
-		fmt.Printf("error checking capabilities: %s", err.Error())
 		return
 	}
 
