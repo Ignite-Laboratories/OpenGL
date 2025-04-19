@@ -259,6 +259,6 @@ func main() {
 		buffers = append(buffers, bufferSet)
 	}
 
-	//renderLoop(file, buffers)
+	renderLoop(file, buffers)
 	cleanup(buffers, file)
 }
