@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/NeowayLabs/drm"
+	"github.com/NeowayLabs/drm/ioctl"
 	"github.com/NeowayLabs/drm/mode"
 	"golang.org/x/sys/unix"
 	_ "image/jpeg"
@@ -99,11 +100,18 @@ func createBufferSet(file *os.File, dev *mode.Modeset) (*bufferSet, error) {
 		return nil, fmt.Errorf("cannot get CRTC: %v", err)
 	}
 
+	// Clear both buffers initially
+	clearFramebuffer(front)
+	clearFramebuffer(back)
+
 	// Set initial CRTC with front buffer
 	err = mode.SetCrtc(file, dev.Crtc, front.id, 0, 0, &dev.Conn, 1, &dev.Mode)
 	if err != nil {
 		return nil, fmt.Errorf("cannot set CRTC: %v", err)
 	}
+
+	// Wait a bit to ensure the CRTC is properly set
+	time.Sleep(50 * time.Millisecond)
 
 	return &bufferSet{
 		front:     front,
@@ -111,6 +119,19 @@ func createBufferSet(file *os.File, dev *mode.Modeset) (*bufferSet, error) {
 		mode:      dev,
 		savedCrtc: savedCrtc,
 	}, nil
+}
+
+func checkDeviceCapabilities(file *os.File) error {
+	caps, err := mode.GetCap(file)
+	if err != nil {
+		return fmt.Errorf("failed to get device capabilities: %v", err)
+	}
+
+	if caps.AsyncPageFlip == 0 {
+		fmt.Println("Warning: Device doesn't support async page flips")
+	}
+
+	return nil
 }
 
 func pageFlip(file *os.File, crtcID uint32, fbID uint32) error {
@@ -122,19 +143,17 @@ func pageFlip(file *os.File, crtcID uint32, fbID uint32) error {
 		user_data uint64
 	}
 
-	req := pageFlipData{
+	req := &pageFlipData{
 		crtc_id: crtcID,
 		fb_id:   fbID,
 		flags:   DRM_MODE_PAGE_FLIP_EVENT,
 	}
 
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL,
-		file.Fd(),
-		DRM_IOCTL_MODE_PAGE_FLIP,
-		uintptr(unsafe.Pointer(&req)))
-
-	if errno != 0 {
-		return fmt.Errorf("page flip failed: %v", errno)
+	err := ioctl.Do(uintptr(file.Fd()),
+		uintptr(DRM_IOCTL_MODE_PAGE_FLIP),
+		uintptr(unsafe.Pointer(req)))
+	if err != nil {
+		return fmt.Errorf("page flip ioctl failed: %v", err)
 	}
 	return nil
 }
@@ -224,6 +243,15 @@ func main() {
 		return
 	}
 
+	// Check device capabilities
+	if err := checkDeviceCapabilities(file); err != nil {
+		fmt.Printf("error checking capabilities: %s", err.Error())
+		return
+	}
+
+	// Set the file descriptor to non-blocking mode for event reading
+	unix.SetNonblock(int(file.Fd()), true)
+
 	modeset, err := mode.NewSimpleModeset(file)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
@@ -241,6 +269,6 @@ func main() {
 		buffers = append(buffers, bufferSet)
 	}
 
-	renderLoop(file, buffers)
+	//renderLoop(file, buffers)
 	cleanup(buffers, file)
 }
