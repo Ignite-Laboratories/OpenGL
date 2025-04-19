@@ -2,18 +2,20 @@ package main
 
 import (
 	"fmt"
-	"golang.org/x/sys/unix"
-	"image"
-	"os/signal"
-
-	"os"
-	"time"
-	"unsafe"
-
-	_ "image/jpeg"
-
 	"github.com/NeowayLabs/drm"
 	"github.com/NeowayLabs/drm/mode"
+	"golang.org/x/sys/unix"
+	_ "image/jpeg"
+	"os"
+	"os/signal"
+	"time"
+	"unsafe"
+)
+
+const (
+	DRM_MODE_PAGE_FLIP_EVENT = 0x01
+	DRM_MODE_PAGE_FLIP_ASYNC = 0x02
+	DRM_IOCTL_MODE_PAGE_FLIP = 0xc048644d
 )
 
 type (
@@ -26,44 +28,21 @@ type (
 		stride uint32
 	}
 
-	// msetData just store the pair (mode, fb) and the saved CRTC of the mode.
-	msetData struct {
+	bufferSet struct {
+		front     framebuffer
+		back      framebuffer
 		mode      *mode.Modeset
-		fb        framebuffer
 		savedCrtc *mode.Crtc
 	}
 
-	vblankData struct {
-		Type      uint32
-		Sequence  uint32
-		Time_sec  uint64
-		Time_usec uint64
-		Signal    uint32
+	pageFlipEvent struct {
+		crtcID   uint32
+		count    uint32
+		tv_sec   uint32
+		tv_usec  uint32
+		reserved uint32
 	}
 )
-
-const (
-	DRM_EVENT_VBLANK      = 0x01
-	DRM_IOCTL_WAIT_VBLANK = 0x40406420
-)
-
-func waitVBlank(file *os.File) error {
-	vbl := vblankData{
-		Type:     0, // Using absolute vblank counting
-		Sequence: 0, // Wait for the next vblank
-	}
-
-	_, _, err := unix.Syscall(unix.SYS_IOCTL,
-		file.Fd(),
-		DRM_IOCTL_WAIT_VBLANK,
-		uintptr(unsafe.Pointer(&vbl)))
-
-	if err != 0 {
-		return fmt.Errorf("vblank wait failed: %v", err)
-	}
-
-	return nil
-}
 
 func createFramebuffer(file *os.File, dev *mode.Modeset) (framebuffer, error) {
 	fb, err := mode.CreateFB(file, dev.Width, dev.Height, 32)
@@ -102,7 +81,65 @@ func createFramebuffer(file *os.File, dev *mode.Modeset) (framebuffer, error) {
 	return framebuf, nil
 }
 
-func renderLoop(file *os.File, msets []msetData) {
+func createBufferSet(file *os.File, dev *mode.Modeset) (*bufferSet, error) {
+	// Create two framebuffers
+	front, err := createFramebuffer(file, dev)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create front buffer: %v", err)
+	}
+
+	back, err := createFramebuffer(file, dev)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create back buffer: %v", err)
+	}
+
+	// Save current CRTC
+	savedCrtc, err := mode.GetCrtc(file, dev.Crtc)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get CRTC: %v", err)
+	}
+
+	// Set initial CRTC with front buffer
+	err = mode.SetCrtc(file, dev.Crtc, front.id, 0, 0, &dev.Conn, 1, &dev.Mode)
+	if err != nil {
+		return nil, fmt.Errorf("cannot set CRTC: %v", err)
+	}
+
+	return &bufferSet{
+		front:     front,
+		back:      back,
+		mode:      dev,
+		savedCrtc: savedCrtc,
+	}, nil
+}
+
+func pageFlip(file *os.File, crtcID uint32, fbID uint32) error {
+	type pageFlipData struct {
+		crtc_id   uint32
+		fb_id     uint32
+		flags     uint32
+		reserved  uint32
+		user_data uint64
+	}
+
+	req := pageFlipData{
+		crtc_id: crtcID,
+		fb_id:   fbID,
+		flags:   DRM_MODE_PAGE_FLIP_EVENT,
+	}
+
+	_, _, errno := unix.Syscall(unix.SYS_IOCTL,
+		file.Fd(),
+		DRM_IOCTL_MODE_PAGE_FLIP,
+		uintptr(unsafe.Pointer(&req)))
+
+	if errno != 0 {
+		return fmt.Errorf("page flip failed: %v", errno)
+	}
+	return nil
+}
+
+func renderLoop(file *os.File, buffers []*bufferSet) {
 	running := true
 
 	c := make(chan os.Signal, 1)
@@ -112,99 +149,66 @@ func renderLoop(file *os.File, msets []msetData) {
 		running = false
 	}()
 
+	// Event handling goroutine
+	eventChan := make(chan bool, 1)
+	go func() {
+		buf := make([]byte, unsafe.Sizeof(pageFlipEvent{}))
+		for running {
+			_, err := unix.Read(int(file.Fd()), buf)
+			if err != nil {
+				if err != unix.EAGAIN {
+					fmt.Fprintf(os.Stderr, "DRM event read failed: %v\n", err)
+				}
+				continue
+			}
+			eventChan <- true
+		}
+	}()
+
 	for running {
-		// Simple VBlank wait
-		err := waitVBlank(file)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "VBlank wait error: %s\n", err.Error())
-			// Don't return, just continue with the frame
-		}
-
-		// Rest of your rendering code
-		for _, mset := range msets {
-			clearFramebuffer(mset.fb)
-		}
-
-		for j := 0; j < len(msets); j++ {
-			mset := msets[j]
+		for _, buffer := range buffers {
+			// Draw to back buffer
 			t := time.Now().UnixNano() / 1000000
-			for y := uint32(0); y < uint32(mset.mode.Height); y++ {
-				for x := uint32(0); x < uint32(mset.mode.Width); x++ {
-					off := (mset.fb.stride * y) + (x * 4)
-					val := uint32(((x + uint32(t)) ^ y) & 0xFF)
-					color := uint32((val << 16) | (val << 8) | val)
-					*(*uint32)(unsafe.Pointer(&mset.fb.data[off])) = color
+			for y := uint32(0); y < uint32(buffer.mode.Height); y++ {
+				for x := uint32(0); x < uint32(buffer.mode.Width); x++ {
+					off := (buffer.back.stride * y) + (x * 4)
+					val := ((x + uint32(t)) ^ y) & 0xFF
+					color := (val << 16) | (val << 8) | val
+					*(*uint32)(unsafe.Pointer(&buffer.back.data[off])) = color
 				}
 			}
-		}
-	}
-}
 
-func draw(msets []msetData) {
-	var off uint32
-
-	reader, err := os.Open("glenda.jpg")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
-		return
-	}
-	defer reader.Close()
-
-	m, _, err := image.Decode(reader)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
-		return
-	}
-	bounds := m.Bounds()
-
-	for j := 0; j < len(msets); j++ {
-		mset := msets[j]
-		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-			for x := bounds.Min.X; x < bounds.Max.X; x++ {
-				r, g, b, _ := m.At(x, y).RGBA()
-				off = (mset.fb.stride * uint32(y)) + (uint32(x) * 4)
-				val := uint32((uint32(r) << 16) | (uint32(g) << 8) | uint32(b))
-				*(*uint32)(unsafe.Pointer(&mset.fb.data[off])) = val
+			// Request page flip
+			err := pageFlip(file, buffer.mode.Crtc, buffer.back.id)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Page flip request failed: %v\n", err)
+				continue
 			}
+
+			// Wait for the flip to complete
+			<-eventChan
+
+			// Swap buffers
+			buffer.front, buffer.back = buffer.back, buffer.front
 		}
 	}
-
-	time.Sleep(10 * time.Second)
 }
 
-func clearFramebuffer(fb framebuffer) {
-	// Clear the framebuffer by setting all bytes to 0
-	for i := uint64(0); i < fb.size; i++ {
-		fb.data[i] = 0
+func cleanup(buffers []*bufferSet, file *os.File) {
+	for _, buffer := range buffers {
+		// Restore original CRTC
+		mode.SetCrtc(file, buffer.mode.Crtc, 0, 0, 0, nil, 0, nil)
+
+		// Clean up both framebuffers
+		destroyFramebuffer(buffer.front, file)
+		destroyFramebuffer(buffer.back, file)
 	}
 }
 
-func destroyFramebuffer(modeset *mode.SimpleModeset, mset msetData, file *os.File) error {
-	handle := mset.fb.handle
-	data := mset.fb.data
-	fb := mset.fb
-
-	err := unix.Munmap(data)
-	if err != nil {
-		return fmt.Errorf("Failed to munmap memory: %s\n", err.Error())
-	}
-	err = mode.RmFB(file, fb.id)
-	if err != nil {
-		return fmt.Errorf("Failed to remove frame buffer: %s\n", err.Error())
-	}
-
-	err = mode.DestroyDumb(file, handle)
-	if err != nil {
-		return fmt.Errorf("Failed to destroy dumb buffer: %s\n", err.Error())
-	}
-	return modeset.SetCrtc(mset.mode, mset.savedCrtc)
-}
-
-func cleanup(modeset *mode.SimpleModeset, msets []msetData, file *os.File) {
-	for _, mset := range msets {
-		destroyFramebuffer(modeset, mset, file)
-	}
-
+func destroyFramebuffer(fb framebuffer, file *os.File) {
+	unix.Munmap(fb.data)
+	mode.RmFB(file, fb.id)
+	mode.DestroyDumb(file, fb.handle)
 }
 
 func main() {
@@ -214,62 +218,29 @@ func main() {
 		return
 	}
 	defer file.Close()
+
 	if !drm.HasDumbBuffer(file) {
 		fmt.Printf("drm device does not support dumb buffers")
 		return
 	}
+
 	modeset, err := mode.NewSimpleModeset(file)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
 		os.Exit(1)
 	}
 
-	var msets []msetData
+	var buffers []*bufferSet
 	for _, mod := range modeset.Modesets {
-		framebuf, err := createFramebuffer(file, &mod)
+		bufferSet, err := createBufferSet(file, &mod)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s\n", err.Error())
-			cleanup(modeset, msets, file)
+			cleanup(buffers, file)
 			return
 		}
-
-		// save current CRTC of this mode to restore at exit
-		savedCrtc, err := mode.GetCrtc(file, mod.Crtc)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: Cannot get CRTC for connector %d: %s", mod.Conn, err.Error())
-			cleanup(modeset, msets, file)
-			return
-		}
-		// change the mode
-		err = mode.SetCrtc(file, mod.Crtc, framebuf.id, 0, 0, &mod.Conn, 1, &mod.Mode)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Cannot set CRTC for connector %d: %s", mod.Conn, err.Error())
-			cleanup(modeset, msets, file)
-			return
-		}
-		msets = append(msets, msetData{
-			mode:      &mod,
-			fb:        framebuf,
-			savedCrtc: savedCrtc,
-		})
-	}
-	if len(msets) > 0 {
-		props, err := mode.GetCrtc(file, msets[0].mode.Crtc)
-		if err != nil {
-			fmt.Printf("Error getting CRTC properties: %v\n", err)
-		} else {
-			fmt.Printf("CRTC Properties: %+v\n", props)
-		}
+		buffers = append(buffers, bufferSet)
 	}
 
-	//caps := mode.GetCap(file)
-	//fmt.Printf("DRM Device Capabilities: %+v\n", caps)
-	buffer := make([]byte, 1024)
-	_, err = unix.Read(int(file.Fd()), buffer)
-	if err != nil {
-		fmt.Printf("DRM event reading test: %v\n", err)
-	}
-
-	//renderLoop(file, msets)
-	cleanup(modeset, msets, file)
+	renderLoop(file, buffers)
+	cleanup(buffers, file)
 }
